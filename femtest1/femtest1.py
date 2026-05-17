@@ -1,9 +1,19 @@
 #This test uses FEM-based techniques to solve the Poisson equation \Delta u = f
-import numpy
 import numpy as np
+from scipy.sparse.linalg import spsolve
+from scipy.sparse import csr_matrix
+
+def solve(nx, ny, f):
+    nodes, elements = mesh(nx, ny)
+    K = build_stiffness(nodes, elements)
+    F = build_load(nodes, elements, f)
+    F, K = boundary_conditions(nodes, F, K)
+    K = csr_matrix(K)
+    u = spsolve(K, F)
+    return u
 
 def build_load(nodes, elements, f):
-    F = numpy.zeros(len(nodes))
+    F = np.zeros(len(nodes))
 
     for e in elements:
         x1 = nodes[e[0]]
@@ -16,8 +26,21 @@ def build_load(nodes, elements, f):
         F[e[2]] += approx_integral
     return F
 
+def boundary_conditions(nodes, F, K):
+    for i in range(len(nodes)):
+        n = nodes[i]
+        if n[0] == 0 or n[0] == 1 or n[1] == 0 or n[1] == 1:
+            for j in range(len(K[i])):
+                if j != i:
+                    K[i][j] = 0
+                    K[j][i] = 0
+                else:
+                    K[i][j] = 1
+            F[i] = 0
+    return F, K
+
 def build_stiffness(nodes, elements):
-    K = numpy.zeros((len(nodes), len(nodes)))
+    K = np.zeros((len(nodes), len(nodes)))
 
     def compute_local_matrix(x1, x2, x3):
         K_ij = stiffness(0, 1, x1, x2, x3)
@@ -43,8 +66,8 @@ def build_stiffness(nodes, elements):
 
 
 def mesh(nx, ny):
-    x = numpy.linspace(0, 1, nx)
-    y = numpy.linspace(0, 1, ny)
+    x = np.linspace(0, 1, nx)
+    y = np.linspace(0, 1, ny)
 
     nodes = []
     for i in range(nx):
@@ -87,4 +110,9 @@ def stiffness(i, j, x1, x2, x3):
     a = area(x1, x2, x3)
     grad_i = basis_grad(i, x1, x2, x3, a)
     grad_j = basis_grad(j, x1, x2, x3, a)
-    return numpy.dot(grad_i, grad_j) * a
+    return np.dot(grad_i, grad_j) * a
+
+if __name__ == '__main__':
+    f = lambda x, y: np.exp(-50 * ((x - 0.5) ** 2  + (y - 0.5) ** 2))
+    u = solve(30, 30, f)
+    print(u)
