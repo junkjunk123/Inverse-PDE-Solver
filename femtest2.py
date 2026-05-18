@@ -1,4 +1,4 @@
-#This test uses FEM-based techniques to solve the Poisson equation \Delta u = f
+#This test uses FEM-based techniques to solve the vector-valued Poisson equation \Delta u = f, u : R^2 -> R^2
 import numpy as np
 from scipy.sparse.linalg import spsolve
 from scipy.sparse import csr_matrix
@@ -13,30 +13,33 @@ def solve(nx, ny, f):
     return u
 
 def build_load(nodes, elements, f):
-    F = np.zeros(len(nodes))
+    F = np.zeros(len(nodes) * 2)
 
     for e in elements:
         x1 = nodes[e[0]]
         x2 = nodes[e[1]]
         x3 = nodes[e[2]]
         centroid = (x1 + x2 + x3) / 3
-        approx_integral = f(centroid[0], centroid[1]) * area(x1, x2, x3) / 3
-        F[e[0]] += approx_integral
-        F[e[1]] += approx_integral
-        F[e[2]] += approx_integral
+        forcing = f(centroid[0], centroid[1])
+        approx_integral_x, approx_integral_y = np.array([forcing[0], forcing[1]]) * area(x1, x2, x3) / 3
+        for k in range(3):
+            F[e[k]] += approx_integral_x
+            F[e[k] + len(nodes)] += approx_integral_y
     return F
 
 def boundary_conditions(nodes, F, K):
-    for i in range(len(nodes)):
-        n = nodes[i]
-        if n[0] == 0 or n[0] == 1 or n[1] == 0 or n[1] == 1:
-            for j in range(len(K[i])):
-                if j != i:
-                    K[i][j] = 0
-                    K[j][i] = 0
-                else:
-                    K[i][j] = 1
-            F[i] = 0
+    n = len(nodes)
+    for i in range(n):
+        node = nodes[i]
+        if node[0] == 0 or node[0] == 1 or node[1] == 0 or node[1] == 1:
+            for dof in [i, i + n]:
+                for j in range(len(K[dof])):
+                    if j != dof:
+                        K[dof][j] = 0
+                        K[j][dof] = 0
+                    else:
+                        K[dof][j] = 1
+                F[dof] = 0
     return F, K
 
 def build_stiffness(nodes, elements):
@@ -62,7 +65,11 @@ def build_stiffness(nodes, elements):
         for a in [0, 1, 2]:
             for b in [0, 1, 2]:
                 K[elements[i][a], elements[i][b]] += local_K[a][b]
-    return K
+    n = len(K)
+    return np.block([
+        [K, np.zeros((n, n))],
+        [np.zeros((n, n)), K]
+    ])
 
 
 def mesh(nx, ny):
@@ -112,7 +119,21 @@ def stiffness(i, j, x1, x2, x3):
     grad_j = basis_grad(j, x1, x2, x3, a)
     return np.dot(grad_i, grad_j) * a
 
+
 if __name__ == '__main__':
-    f = lambda x, y: np.exp(-50 * ((x - 0.5) ** 2  + (y - 0.5) ** 2))
+    pi = np.pi
+    f = lambda x, y: (2 * pi ** 2 * np.sin(pi * x) * np.sin(pi * y),
+                      2 * pi ** 2 * np.sin(pi * x) * np.sin(pi * y))
     u = solve(30, 30, f)
-    print(u)
+
+    # Check against true solution at interior nodes
+    nodes, _ = mesh(30, 30)
+    n = len(nodes)
+    u_true_x = np.array([np.sin(pi * nd[0]) * np.sin(pi * nd[1]) for nd in nodes])
+    u_true_y = u_true_x.copy()
+
+    u_x = u[:n]
+    u_y = u[n:]
+
+    print("Max error x:", np.max(np.abs(u_x - u_true_x)))
+    print("Max error y:", np.max(np.abs(u_y - u_true_y)))
