@@ -9,8 +9,8 @@ def solve(nx, ny, f):
     F = build_load(nodes, elements, f)
     F, K = boundary_conditions(nodes, F, K)
     K = csr_matrix(K)
-    u = spsolve(K, F)
-    return u
+    U = spsolve(K, F)
+    return U
 
 def build_load(nodes, elements, f):
     F = np.zeros(len(nodes) * 2)
@@ -118,7 +118,6 @@ def stiffness(i, j, x1, x2, x3):
     grad_i = basis_grad(i, x1, x2, x3, a)
     grad_j = basis_grad(j, x1, x2, x3, a)
     return np.dot(grad_i, grad_j) * a
-
 
 if __name__ == '__main__':
     pi = np.pi
