@@ -1,4 +1,6 @@
 #This test uses FEM with P1-P1 mesh to solve the Stokes Equations -\mu \Delta u + \nabla p = f; div(u) = 0, for u : R^2 -> R^2 and p : R^2 -> R
+#Note that the pressure evolution in the solution exhibits numerical instability (lack of smoothness, rapid oscillation), which demonstrates the effects of
+#violating the Ladyzhenskaya–Babuška–Brezzi (LBB) condition.
 import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import spsolve
