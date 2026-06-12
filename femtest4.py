@@ -1,42 +1,46 @@
-import numpy as np
 
-# def solve(nx, ny, f):
-#     nodes, elements = mesh(nx, ny)
-#     K = build_stiffness(nodes, elements)
-#     F = build_load(nodes, elements, f)
-#     F, K = boundary_conditions(nodes, F, K)
-#
-#     K_sparse = csr_matrix(K)
-#     U = spsolve(K_sparse, F)
-#
-#     # Extract solutions
-#     n = len(nodes)
-#     u_x = U[0:n]
-#     u_y = U[n:2 * n]
-#     p = U[2 * n:3 * n]
-#
-#     return u_x, u_y, p
-#
-# def boundary_conditions(nodes, nv, F, K):
-#     n = len(nodes)
-#
-#     # 1. Apply Dirichlet boundary conditions to Velocity degrees of freedom
-#     for i in range(n):
-#         node = nodes[i]
-#         if np.abs(node[0]) < 1e-7 or np.abs(node[0] - 1) < 1e-7 or np.abs(node[1]) < 1e-7 or np.abs(node[1] - 1) < 1e-7:
-#             for dof in [i, i + n]:
-#                 K[dof, 0:2*n] = 0 #note that clearing the whole way causes singularities, we don't want to clear the pressure columns
-#                 K[dof, dof] = 1
-#                 F[dof] = 0  # No-slip boundary condition (u = 0)
-#
-#     # 2. Pin a single pressure node to eliminate the hydrostatic constant pressure nullspace
-#     p_pin = 2 * nv
-#     K[p_pin, :] = 0
-#     K[:, p_pin] = 0
-#     K[p_pin, p_pin] = 1
-#     F[p_pin] = 0
-#
-#     return F, K
+import numpy as np
+from scipy.sparse import csr_matrix
+from scipy.sparse.linalg import spsolve
+
+def solve(nx, ny, f):
+    mesh_data = taylor_hood_mesh(nx, ny)
+    K, F = assemble_system(mesh_data, f)
+    nv = mesh_data['num_vel_nodes']
+    F, K = boundary_conditions(mesh_data['vel_nodes'], nv, F, K)
+
+    # 4. Solve
+    K_sparse = csr_matrix(K)
+    U = spsolve(K_sparse, F)
+
+    np_nodes = mesh_data['num_pres_nodes']
+
+    ux = U[0:nv]
+    uy = U[nv:2 * nv]
+    p = U[2 * nv:2 * nv + np_nodes]
+
+    return ux, uy, p
+
+def boundary_conditions(nodes, nv, F, K):
+    n = len(nodes)
+
+    # 1. Apply Dirichlet boundary conditions to Velocity degrees of freedom
+    for i in range(n):
+        node = nodes[i]
+        if np.abs(node[0]) < 1e-7 or np.abs(node[0] - 1) < 1e-7 or np.abs(node[1]) < 1e-7 or np.abs(node[1] - 1) < 1e-7:
+            for dof in [i, i + n]:
+                K[dof, :] = 0 #note that clearing the whole way causes singularities, we don't want to clear the pressure columns
+                K[dof, dof] = 1
+                F[dof] = 0  # No-slip boundary condition (u = 0)
+
+    # 2. Pin a single pressure node to eliminate the hydrostatic constant pressure nullspace
+    p_pin = 2 * nv
+    K[p_pin, :] = 0
+    K.T[p_pin, :] = 0
+    K[p_pin, p_pin] = 1
+    F[p_pin] = 0
+
+    return F, K
 
 def taylor_hood_mesh(nx, ny):
     #P2/P1 mesh; note that velocity uses midpoint nodes for quadratic basis but pressure only uses vertices
@@ -123,6 +127,8 @@ def quadratic_basis(xi, eta):
     # \frac{\partial N / \partial \eta}
     partial_eta = np.array([-3 + 4 * xi + 4 * eta, 0, 4 * eta - 1, -4 * xi, 4 * xi, 4 - 4 * xi - 8 * eta])
 
+    return N, partial_xi, partial_eta
+
 def assemble_system(mesh, f):
     nv_nodes = mesh['num_vel_nodes']
     np_nodes = mesh['num_pres_nodes']
@@ -155,4 +161,60 @@ def assemble_system(mesh, f):
         Fx = np.zeros(6)
         Fy = np.zeros(6)
 
+        #Numerical integration
+        for q in range(3):
+            xi, eta = quad_points[q][0], quad_points[q][1]
+            w = quad_weights[q] * detJ
 
+            # 1. Evaluate P2 Velocity Shapes
+            N, partial_xi, partial_eta = quadratic_basis(xi, eta)
+            gradN = np.zeros((6, 2))
+
+            for k in range(6):
+                gradN[k] = invJ.T @ np.array([partial_xi[k], partial_eta[k]])
+
+            psi = np.array([1 - xi - eta, xi, eta])
+            pos = (1 - xi - eta)*x1 + xi*x2 + eta*x3
+            val = f(pos[0], pos[1])
+
+            for i in range(6):
+                Fx[i] += N[i] * val[0] * w
+                Fy[i] += N[i] * val[1] * w
+                for j in range(6):
+                    Ak[i, j] += np.dot(gradN[i], gradN[j]) * w
+
+            for i in range(3):
+                for j in range(6):
+                    Bx[i, j] += psi[i] * gradN[j][0] * w
+                    By[i, j] += psi[i] * gradN[j][1] * w
+
+        for i in range(6):
+            row_v = v_idx[i]
+            F_global[row_v] += Fx[i]
+            F_global[row_v + nv_nodes] += Fy[i]
+
+            for j in range(6):
+                col_v = v_idx[j]
+                K_global[row_v, col_v] += Ak[i, j]  #Ax
+                K_global[row_v + nv_nodes, col_v + nv_nodes] += Ak[i, j]  #Ay
+
+        for i in range(3):
+            row_p = p_idx[i] + 2 * nv_nodes
+
+            for j in range(6):
+                col_v = v_idx[j]
+
+                K_global[row_p, col_v] += Bx[i, j]
+                K_global[row_p, col_v + nv_nodes] += By[i, j]
+
+                K_global[col_v, row_p] += Bx[i, j]
+                K_global[col_v + nv_nodes, row_p] += By[i, j]
+
+    return K_global, F_global
+
+if __name__ == "__main__":
+    f = lambda x, y: [np.exp(-50 * ((x - 0.4) ** 2 + (y - 0.6) ** 2)), np.exp(-50 * ((x - 0.6) ** 2 + (y - 0.4) ** 2))]
+    ux, uy, p = solve(30, 30, f)
+    print(ux)
+    print(uy)
+    print(p)
