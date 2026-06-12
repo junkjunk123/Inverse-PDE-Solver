@@ -1,4 +1,4 @@
-
+#This test uses FEM with P2-P1 mesh (Taylor-Hood elements) to solve the Stokes Equations -\mu \Delta u + \nabla p = f; div(u) = 0, for u : R^2 -> R^2 and p : R^2 -> R
 import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import spsolve
