@@ -1,3 +1,4 @@
+#This test adds Jax-based autodifferentiation capabilities to the Stokes flow solver from femtest4.py. Although the code works functionality-wise, the solver takes ~21 minutes to solve the problem, which suggests that some optimizations would be helpful.
 import time
 
 import jax
