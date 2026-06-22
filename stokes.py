@@ -170,11 +170,8 @@ def element_matrices(mesh, f):
             B += w * (psi[:, None, None] * gradN[None, :, :])
 
         return F_local, A_k, B[:, :, 0], B[:, :, 1]
-
-    # VMAP maps compute_single_element over the leading axis (the elements) seamlessly
     F_local_all, A_k_all, B_x_all, B_y_all = jax.vmap(compute_single_element)(v_coords)
 
-    # Accumulate the forces globally
     nv_nodes = mesh['num_vel_nodes']
     dof = 2 * nv_nodes + mesh['num_pres_nodes']
     F_global = jnp.zeros(dof)
